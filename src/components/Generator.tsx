@@ -12,7 +12,7 @@ export default () => {
   const [currentError, setCurrentError] = createSignal<ErrorMessage>()
   const [currentAssistantMessage, setCurrentAssistantMessage] = createSignal('')
   const [loading, setLoading] = createSignal(false)
-  const [controller, setController] = createSignal<AbortController>(null)
+  const [eventSource, setEventSource] = createSignal<EventSource | null>(null)
   const [isStick, setStick] = createSignal(false)
   const maxHistoryMessages = parseInt(import.meta.env.PUBLIC_MAX_HISTORY_MESSAGES || '99')
 
@@ -78,14 +78,18 @@ export default () => {
     setCurrentAssistantMessage('')
     setCurrentError(null)
     const storagePassword = localStorage.getItem('pass')
+    const requestMessageList = messageList().map(message => ({
+      role: message.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: message.content }],
+    })).slice(-maxHistoryMessages)
+    const timestamp = Date.now()
+
     try {
-      const requestMessageList = messageList().map(message => ({
-        role: message.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: message.content }],
-      })).slice(-maxHistoryMessages)
-      const timestamp = Date.now()
-      const eventSource = new EventSource('/api/generate', {
+      const response = await fetch('/api/generate', {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           messages: requestMessageList,
           time: timestamp,
@@ -97,25 +101,35 @@ export default () => {
         }),
       })
 
-      eventSource.onmessage = (event) => {
+      if (!response.ok)
+        throw new Error(`HTTP error! status: ${response.status}`)
+
+      const { sessionId } = await response.json()
+
+      const newEventSource = new EventSource(`/api/generate?sessionId=${sessionId}`)
+      setEventSource(newEventSource)
+
+      newEventSource.onmessage = (event) => {
         const data = JSON.parse(event.data)
         setCurrentAssistantMessage(currentAssistantMessage() + data.message)
         isStick() && instantToBottom()
       }
 
-      eventSource.onerror = (error) => {
+      newEventSource.onerror = (error) => {
         console.error('EventSource failed:', error)
-        eventSource.close()
+        newEventSource.close()
         setLoading(false)
+        setCurrentError({ message: 'A connection error occurred.' })
       }
 
       onCleanup(() => {
-        eventSource.close()
+        if (newEventSource)
+          newEventSource.close()
       })
     } catch (e) {
       console.error(e)
       setLoading(false)
-      return
+      setCurrentError({ message: e.message })
     }
     archiveCurrentMessage()
     isStick() && instantToBottom()
@@ -148,8 +162,10 @@ export default () => {
   }
 
   const stopStreamFetch = () => {
-    if (controller()) {
-      controller().abort()
+    const currentEventSource = eventSource()
+    if (currentEventSource) {
+      currentEventSource.close()
+      setEventSource(null)
       archiveCurrentMessage()
     }
   }
