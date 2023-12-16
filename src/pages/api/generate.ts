@@ -95,6 +95,9 @@ export const get: APIRoute = async(context) => {
         controller.close()
         sessions.delete(sessionId) // 清理会话数据
       },
+      cancel() {
+        sessions.delete(sessionId) // 如果客户端取消了请求，确保清理会话数据
+      },
     })
 
     return new Response(responseStream, {

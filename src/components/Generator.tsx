@@ -117,10 +117,15 @@ export default () => {
       }
 
       newEventSource.onerror = (error) => {
-        console.error('EventSource failed:', error)
+        // 检查连接是否已经关闭
+        if (newEventSource.readyState === EventSource.CLOSED) {
+          console.info('EventSource has been closed by the server.')
+        } else {
+          console.error('EventSource failed:', error)
+          setCurrentError({ message: 'A connection error occurred.' })
+        }
         newEventSource.close()
         setLoading(false)
-        setCurrentError({ message: 'A connection error occurred.' })
       }
 
       onCleanup(() => {
