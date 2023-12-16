@@ -79,14 +79,12 @@ export default () => {
     setCurrentError(null)
     const storagePassword = localStorage.getItem('pass')
     try {
-      const controller = new AbortController()
-      setController(controller)
       const requestMessageList = messageList().map(message => ({
         role: message.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: message.content }],
       })).slice(-maxHistoryMessages)
       const timestamp = Date.now()
-      const response = await fetch('/api/generate', {
+      const eventSource = new EventSource('/api/generate', {
         method: 'POST',
         body: JSON.stringify({
           messages: requestMessageList,
@@ -97,42 +95,26 @@ export default () => {
             m: requestMessageList?.[requestMessageList.length - 1]?.parts[0]?.text || '',
           }),
         }),
-        signal: controller.signal,
       })
-      if (!response.ok) {
-        const error = await response.json()
-        console.error(error.error)
-        setCurrentError(error.error)
-        throw new Error('Request failed')
+
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+        setCurrentAssistantMessage(currentAssistantMessage() + data.message)
+        isStick() && instantToBottom()
       }
-      const data = response.body
-      if (!data)
-        throw new Error('No data')
 
-      const reader = data.getReader()
-      const decoder = new TextDecoder('utf-8')
-      let done = false
-
-      while (!done) {
-        const { value, done: readerDone } = await reader.read()
-        if (value) {
-          const char = decoder.decode(value, { stream: true })
-          if (char === '\n' && currentAssistantMessage().endsWith('\n'))
-            continue
-
-          if (char)
-            setCurrentAssistantMessage(currentAssistantMessage() + char)
-
-          isStick() && instantToBottom()
-        }
-        done = readerDone
+      eventSource.onerror = (error) => {
+        console.error('EventSource failed:', error)
+        eventSource.close()
+        setLoading(false)
       }
-      if (done)
-        setCurrentAssistantMessage(currentAssistantMessage() + decoder.decode())
+
+      onCleanup(() => {
+        eventSource.close()
+      })
     } catch (e) {
       console.error(e)
       setLoading(false)
-      setController(null)
       return
     }
     archiveCurrentMessage()

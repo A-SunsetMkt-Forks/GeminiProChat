@@ -43,7 +43,7 @@ export const post: APIRoute = async(context) => {
     const responseStream = new ReadableStream({
       async start(controller) {
         for await (const chunk of stream) {
-          const text = await chunk.text()
+          const text = `data: ${JSON.stringify({ message: chunk })}\n\n`
           const queue = new TextEncoder().encode(text)
           controller.enqueue(queue)
         }
@@ -51,19 +51,19 @@ export const post: APIRoute = async(context) => {
       },
     })
 
-    return new Response(responseStream, { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+    return new Response(responseStream, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    })
   } catch (error) {
     console.error(error)
-    const errorMessage = error.message
-    const regex = /https?:\/\/[^\s]+/g
-    const filteredMessage = errorMessage.replace(regex, '').trim()
-    const messageParts = filteredMessage.split('[400 Bad Request]')
-    const cleanMessage = messageParts.length > 1 ? messageParts[1].trim() : filteredMessage
-
     return new Response(JSON.stringify({
       error: {
         code: error.name,
-        message: cleanMessage,
       },
     }), { status: 500 })
   }
