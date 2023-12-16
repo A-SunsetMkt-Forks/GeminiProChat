@@ -111,7 +111,8 @@ export default () => {
 
       newEventSource.onmessage = (event) => {
         const data = JSON.parse(event.data)
-        setCurrentAssistantMessage(currentAssistantMessage() + data.message)
+        const text = data.message.candidates[0].content.parts.map(part => part.text).join('')
+        setCurrentAssistantMessage(prev => prev + text)
         isStick() && instantToBottom()
       }
 
